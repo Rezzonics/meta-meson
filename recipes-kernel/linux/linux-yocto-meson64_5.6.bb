@@ -6,13 +6,12 @@ FILESEXTRAPATHS_prepend := "${THISDIR}/${PN}-${PV}:"
 
 DEPENDS += "rsync-native"
 
-SRCREV_meson = "03dee2c63c546a45dbb72a8cba002a1fa9cdbe1c"
+SRCREV_meson = "e806fe9a499c969ee44ca7c5b9f57ff3126039e5"
 LINUX_VERSION = "5.6.0"
 	
 # Linux stable tree
 SRC_URI = "git://github.com/Rezzonics/linux.git;protocol=https;branch=devrezz2;name=meson \
            file://defconfig \
-           file://0001-AUDIN-capture-FIFO-corrected-with-2-periods-and-redu.patch \
            "
 
 KERNEL_VERSION_SANITY_SKIP="1"
