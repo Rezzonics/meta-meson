@@ -1,0 +1,585 @@
+From e806fe9a499c969ee44ca7c5b9f57ff3126039e5 Mon Sep 17 00:00:00 2001
+From: rezzonics <delacruz@Piloto2.localdomain>
+Date: Mon, 9 Nov 2020 23:26:24 +0100
+Subject: [PATCH] AUDIN capture FIFO corrected with 2 periods and reduced
+ buffer minimum size 1.33ms
+
+---
+ sound/soc/meson/aiu-encoder-i2s.c   |   3 +-
+ sound/soc/meson/aiu-fifo-spdif.c    |   6 +-
+ sound/soc/meson/audin-decoder-i2s.c |   3 +-
+ sound/soc/meson/audin-fifo-spdif.c  |   6 +-
+ sound/soc/meson/audin-fifo.c        |  78 ++++++++------
+ sound/soc/meson/audio-codec-ctrl.c  | 151 ++++++++++++++++++++++++++++
+ sound/soc/meson/audio.c             |  53 +++++-----
+ sound/soc/meson/audio.h             |   6 ++
+ 8 files changed, 241 insertions(+), 65 deletions(-)
+
+diff --git a/sound/soc/meson/aiu-encoder-i2s.c b/sound/soc/meson/aiu-encoder-i2s.c
+index f13a1874548b..ffcbb8def651 100644
+--- a/sound/soc/meson/aiu-encoder-i2s.c
++++ b/sound/soc/meson/aiu-encoder-i2s.c
+@@ -84,6 +84,7 @@ static int aiu_encoder_i2s_setup_desc(struct snd_soc_component *component,
+ 	}
+ 
+ 	switch (params_channels(params)) {
++	case 1: 
+ 	case 2: /* Nothing to do */
+ 		break;
+ 	case 8:
+@@ -308,7 +309,7 @@ static int aiu_encoder_i2s_set_sysclk(struct snd_soc_dai *dai, int clk_id,
+ 	return ret;
+ }
+ 
+-static const unsigned int hw_channels[] = {2, 8};
++static const unsigned int hw_channels[] = {1, 2, 8};
+ static const struct snd_pcm_hw_constraint_list hw_channel_constraints = {
+ 	.list = hw_channels,
+ 	.count = ARRAY_SIZE(hw_channels),
+diff --git a/sound/soc/meson/aiu-fifo-spdif.c b/sound/soc/meson/aiu-fifo-spdif.c
+index b5b850f8baaf..b7e79b4ae076 100644
+--- a/sound/soc/meson/aiu-fifo-spdif.c
++++ b/sound/soc/meson/aiu-fifo-spdif.c
+@@ -33,10 +33,10 @@ static struct snd_pcm_hardware fifo_spdif_pcm = {
+ 		 SNDRV_PCM_INFO_MMAP_VALID |
+ 		 SNDRV_PCM_INFO_PAUSE),
+ 	.formats = AIU_FORMATS,
+-	.rate_min = 5512,
++	.rate_min = 8000,
+ 	.rate_max = 192000,
+-	.channels_min = 2,
+-	.channels_max = 2,
++	.channels_min = 1,
++	.channels_max = 8,
+ 	.period_bytes_min = AIU_FIFO_SPDIF_BLOCK,
+ 	.period_bytes_max = AIU_FIFO_SPDIF_BLOCK * USHRT_MAX,
+ 	.periods_min = 2,
+diff --git a/sound/soc/meson/audin-decoder-i2s.c b/sound/soc/meson/audin-decoder-i2s.c
+index 8c90b2f6161b..b372878a17e4 100644
+--- a/sound/soc/meson/audin-decoder-i2s.c
++++ b/sound/soc/meson/audin-decoder-i2s.c
+@@ -101,6 +101,7 @@ static int audin_decoder_i2s_setup_desc(struct snd_soc_component *component,
+ 	}
+ 	
+ 	switch (params_channels(params)) {
++	case 1:
+ 	case 2:
+ 		ch = 1;
+ 		break;
+@@ -403,7 +404,7 @@ static int audin_decoder_i2s_set_sysclk(struct snd_soc_dai *dai, int clk_id,
+ 	return ret;
+ }
+ 
+-static const unsigned int hw_channels[] = {2, 8};
++static const unsigned int hw_channels[] = {1, 2, 8};
+ static const struct snd_pcm_hw_constraint_list hw_channel_constraints = {
+ 	.list = hw_channels,
+ 	.count = ARRAY_SIZE(hw_channels),
+diff --git a/sound/soc/meson/audin-fifo-spdif.c b/sound/soc/meson/audin-fifo-spdif.c
+index 26a5a96d5f51..30a8b999efa8 100644
+--- a/sound/soc/meson/audin-fifo-spdif.c
++++ b/sound/soc/meson/audin-fifo-spdif.c
+@@ -29,10 +29,10 @@ static struct snd_pcm_hardware fifo_spdif_pcm = {
+ 		 SNDRV_PCM_INFO_MMAP_VALID |
+ 		 SNDRV_PCM_INFO_PAUSE),
+ 	.formats = AUDIN_FORMATS,
+-	.rate_min = 5512,
++	.rate_min = 8000,
+ 	.rate_max = 192000,
+-	.channels_min = 2,
+-	.channels_max = 2,
++	.channels_min = 1,
++	.channels_max = 8,
+ 	.period_bytes_min = AUDIN_FIFO_SPDIF_BLOCK,
+ 	.period_bytes_max = AUDIN_FIFO_SPDIF_BLOCK * USHRT_MAX,
+ 	.periods_min = 2,
+diff --git a/sound/soc/meson/audin-fifo.c b/sound/soc/meson/audin-fifo.c
+index d8a5148277e0..59a814418080 100644
+--- a/sound/soc/meson/audin-fifo.c
++++ b/sound/soc/meson/audin-fifo.c
+@@ -15,8 +15,13 @@
+ #include "audin-fifo.h"
+ #include "audio.h"
+ 
+-extern int fifo_shft;
+-extern int frame_shft;
++#define ISR_ADV		8	
++
++#ifdef DEBUG_FIFO2
++unsigned int ff_shft = 0x80;
++unsigned int period_bytes = AUDIN_FIFO_I2S_BLOCK;
++unsigned int fifo_size = 384;
++#endif 
+ 
+ int audin_fifo_i2s_hw_params(struct snd_pcm_substream *substream,
+ 		    	     struct snd_pcm_hw_params *params,
+@@ -31,36 +36,38 @@ int audin_fifo_i2s_hw_params(struct snd_pcm_substream *substream,
+ 	unsigned int desc1 = 0;
+ 	unsigned int val = 0;
+ 	int ret;
++#ifdef DEBUG_FIFO
+ 	unsigned int debug_val[3];
++#endif
+ 
++	spin_lock(&audio->irq_lock);
+ 	ret = snd_pcm_lib_malloc_pages(substream, params_buffer_bytes(params));
+ 	if (ret < 0)
+ 		return ret;
+ 
+ 	/* Setup the fifo boundaries */
+-	end = runtime->dma_addr + runtime->dma_bytes; 
+-//	      - (1<<frame_shft)*fifo->fifo_block;
+-	end_block = runtime->dma_addr + (1<<fifo_shft)*fifo->fifo_block; //32*
+-	regmap_write(audio->audin_map, fifo->mem_offset + AUDIN_FIFO_START_OFF,
++	end = runtime->dma_addr + runtime->dma_bytes - 8; 
++	end_block = runtime->dma_addr + runtime->dma_bytes/2 - ISR_ADV; //ff_shft;
++	regmap_write(audio->audin_map, AUDIN_FIFO0_START,
+ 		     runtime->dma_addr);
+-	regmap_write(audio->audin_map, fifo->mem_offset + AUDIN_FIFO_PTR_OFF,
++	regmap_write(audio->audin_map, AUDIN_FIFO0_PTR, 0);
++	regmap_write(audio->audin_map, AUDIN_FIFO0_PTR,
+ 		     runtime->dma_addr);
+-	regmap_write(audio->audin_map, fifo->mem_offset + AUDIN_FIFO_END_OFF,
+-		     end);
+-	regmap_write(audio->audin_map, fifo->mem_offset + AUDIN_FIFO_INTR_OFF,
+-		     end - 384);
+-
++	regmap_write(audio->audin_map, AUDIN_FIFO0_END,
++		     end );
++	regmap_write(audio->audin_map, AUDIN_FIFO0_INTR,
++		     end_block );
++#ifdef DEBUG_FIFO
+ 	regmap_write(audio->audin_map, fifo->mem_offset + AUDIN_FIFO_PTR_OFF, 1);
+-	regmap_read(audio->audin_map, fifo->mem_offset + AUDIN_FIFO_START_OFF, &debug_val[0]);
+-//	regmap_write(audio->audin_map, fifo->mem_offset + AUDIN_FIFO_PTR_OFF, 0);
+ 	regmap_read(audio->audin_map, fifo->mem_offset + AUDIN_FIFO_PTR_OFF, &debug_val[1]);
++	regmap_read(audio->audin_map, fifo->mem_offset + AUDIN_FIFO_START_OFF, &debug_val[0]);
+ 	regmap_read(audio->audin_map, fifo->mem_offset + AUDIN_FIFO_END_OFF, &debug_val[2]);
+-/*
++
+ 	printk("audin_fifo_i2s_hw_params: sample_bits=%d, channels=%d\n", 
+ 		runtime->sample_bits, runtime->channels);
+ 	printk("audin_fifo_i2s_hw_params: START=%x, PTR=%x, END=%x\n", 
+ 		debug_val[0], debug_val[1], debug_val[2]);
+-*/
++#endif
+ 	/* DIN_POS: 0: 1:1-byte, 2:2-bytes 3:3-bytes 4:4-bytes? */
+ 	/* DIN_BYTE_NUM: 0:8bit, 1:16bit, 2:32bit (24bit) */
+ 	switch (params_physical_width(params)) {
+@@ -140,6 +147,7 @@ int audin_fifo_i2s_hw_params(struct snd_pcm_substream *substream,
+ 	printk("audin_fifo_i2s_hw_params: AUDIN_FIFO0_CTRL=%x, AUDIN_FIFO0_CTRL1=%x\n", 
+ 		debug_val[0], debug_val[1]);
+ */
++	spin_unlock(&audio->irq_lock);
+ 	return 0;
+ }
+ 
+@@ -277,32 +285,34 @@ static irqreturn_t audin_fifo_isr(int irq, void *dev_id)
+ 	struct snd_pcm_runtime *runtime = capture->runtime;
+ 	struct snd_soc_dai *dai = rtd->cpu_dai;
+ 	struct audio *audio = snd_soc_dai_get_drvdata(dai);
+-	struct audio_fifo *fifo = dai->capture_dma_data;
+-/*
++//	struct audio_fifo *fifo = dai->capture_dma_data;
++
+ 	unsigned int debug_val[2];
+ 
+-	regmap_write(audio->audin_map, AUDIN_FIFO0_PTR, 0);
+-	regmap_read(audio->audin_map, AUDIN_FIFO0_PTR, &debug_val[0]);
++	spin_lock(&audio->irq_lock);
+ 	regmap_read(audio->audin_map, AUDIN_FIFO0_INTR, &debug_val[1]);
++#ifdef DEBUG_FIFO
++	regmap_write(audio->audin_map, AUDIN_FIFO0_PTR, 1);
++	regmap_read(audio->audin_map, AUDIN_FIFO0_PTR, &debug_val[0]);
+ 	printk("audin_fifo_isr: AUDIN_FIFO0_PTR=%x, AUDIN_FIFO0_INTR=%x\n", 
+ 		debug_val[0], debug_val[1]);
+-*/
+-	regmap_write(audio->audin_map, fifo->mem_offset + AUDIN_FIFO_PTR_OFF,
+-		     runtime->dma_addr);
+-	regmap_write(audio->audin_map, AUDIN_FIFO0_PTR, 1);
+-/*
+-	debug_val[1] += fifo->fifo_block;
++#endif
++	
++	debug_val[1] += runtime->dma_bytes/2;
+ 	if (debug_val[1] > runtime->dma_addr + runtime->dma_bytes)
+-		debug_val[1] -= runtime->dma_addr + runtime->dma_bytes;
+-	regmap_write(audio->audin_map, AUDIN_FIFO0_INTR, debug_val[1]);
+-*/
++	{
++		debug_val[1] -= runtime->dma_bytes;
++	}
++
+ 	regmap_update_bits(audio->audin_map, AUDIN_FIFO_INT,
+ 			   AUDIN_FIFO_INT_FIFO0_ADDR,
+ 			   1);
++	regmap_write(audio->audin_map, AUDIN_FIFO0_INTR, debug_val[1]);
+ 	/* Clear must also be cleared */
+ 	regmap_update_bits(audio->audin_map, AUDIN_FIFO_INT,
+ 			   AUDIN_FIFO_INT_FIFO0_ADDR,
+ 			   0);
++	spin_unlock(&audio->irq_lock);
+ 	snd_pcm_period_elapsed(capture);
+ 	return IRQ_HANDLED;
+ }
+@@ -310,7 +320,7 @@ static irqreturn_t audin_fifo_isr(int irq, void *dev_id)
+ static irqreturn_t audin_fifo_isr(int irq, void *dev_id)
+ {
+ 	struct snd_pcm_substream *capture = dev_id;
+-
++record -D hw:0,3 -c 2 -f S32_LE -d 10 -t wav -r 48000 /tmp/s32_ch2.wav
+ 	snd_pcm_period_elapsed(capture);
+ //	printk("audin_fifo_isr\n");
+ 	return IRQ_HANDLED;
+@@ -322,7 +332,11 @@ int audin_fifo_startup(struct snd_pcm_substream *substream,
+ 	struct audio_fifo *fifo = dai->capture_dma_data;
+ 	struct audio *audio = snd_soc_dai_get_drvdata(dai);
+ 	int ret;
+-
++#ifdef DEBUG_FIFO2
++	fifo->pcm->period_bytes_min = period_bytes;
++	fifo->pcm->period_bytes_max = period_bytes;
++	fifo->pcm->fifo_size = fifo_size;
++#endif
+ 	snd_soc_set_runtime_hwparams(substream, fifo->pcm);
+ 
+ 	/*
+@@ -331,7 +345,7 @@ int audin_fifo_startup(struct snd_pcm_substream *substream,
+ 	 */
+ 	ret = snd_pcm_hw_constraint_step(substream->runtime, 0,
+ 					 SNDRV_PCM_HW_PARAM_BUFFER_BYTES,
+-					 fifo->fifo_block);
++					 2*fifo->fifo_block);
+ 	if (ret)
+ 		return ret;
+ 
+diff --git a/sound/soc/meson/audio-codec-ctrl.c b/sound/soc/meson/audio-codec-ctrl.c
+index bcd62ef6af96..8022a6d98a4b 100644
+--- a/sound/soc/meson/audio-codec-ctrl.c
++++ b/sound/soc/meson/audio-codec-ctrl.c
+@@ -440,6 +440,149 @@ static int audin_chen_put_enum(struct snd_kcontrol *kcontrol,
+ 
+ static SOC_ENUM_SINGLE_EXT_DECL(audin_chen_enum, audin_chen_texts);
+ #endif
++#ifdef DEBUG_FIFO2
++extern unsigned int ff_shft;
++
++static const char * const audin_ff_texts[] = {
++	"8", "16", "32", "64", "128", "256", "384", "512", "768", "1024",
++};
++
++static const unsigned int audin_ff_values[] = {
++	8, 16, 32, 64, 128, 256, 384, 512, 768, 1024,
++};
++
++static int audin_ff_get_enum(struct snd_kcontrol *kcontrol,
++			         struct snd_ctl_elem_value *ucontrol)
++{
++//	struct snd_soc_component *component =
++//		snd_soc_kcontrol_component(kcontrol);
++	unsigned int val, mask;
++
++	mask = 0xffff;
++	val = ff_shft;
++	ucontrol->value.integer.value[0] = (val & mask) >> __ffs(mask);
++	return 0;
++}
++
++static int audin_ff_put_enum(struct snd_kcontrol *kcontrol,
++			          struct snd_ctl_elem_value *ucontrol)
++{
++//	struct snd_soc_component *component =
++//		snd_soc_kcontrol_component(kcontrol);
++//	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
++	unsigned int mux, val, mask, old, new;
++	int changed;
++
++	mux = ucontrol->value.integer.value[0];
++	val = mux;
++	mask = 0xffff;
++	old = ff_shft;
++	new = (old & ~mask) | val;
++	changed = old != new;
++
++	if (!changed)
++		return 0;
++	ff_shft = val & mask;
++	return 0;
++}
++
++static SOC_VALUE_ENUM_SINGLE_DECL(audin_ff_enum, NULL, 0, 0, audin_ff_texts, audin_ff_values);
++
++extern unsigned int period_bytes;
++
++static const char * const audin_pb_texts[] = {
++	"0x300", "0x400", "0x800", "0x1000", "0x2000", "0x4000",
++};
++
++static const unsigned int audin_pb_values[] = {
++	0x300, 0x400, 0x800, 0x1000, 0x2000, 0x4000,
++};
++
++static int audin_pb_get_enum(struct snd_kcontrol *kcontrol,
++			         struct snd_ctl_elem_value *ucontrol)
++{
++//	struct snd_soc_component *component =
++//		snd_soc_kcontrol_component(kcontrol);
++	unsigned int val, mask;
++
++	mask = 0xffff;
++	val = period_bytes;
++	ucontrol->value.integer.value[0] = (val & mask) >> __ffs(mask);
++	return 0;
++}
++
++static int audin_pb_put_enum(struct snd_kcontrol *kcontrol,
++			          struct snd_ctl_elem_value *ucontrol)
++{
++//	struct snd_soc_component *component =
++//		snd_soc_kcontrol_component(kcontrol);
++//	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
++	unsigned int mux, val, mask, old, new;
++	int changed;
++
++	mux = ucontrol->value.integer.value[0];
++	val = mux;
++	mask = 0xffff;
++	old = period_bytes;
++	new = (old & ~mask) | val;
++	changed = old != new;
++
++	if (!changed)
++		return 0;
++	period_bytes = val & mask;
++	return 0;
++}
++
++static SOC_VALUE_ENUM_SINGLE_DECL(audin_pb_enum, NULL, 0, 0, audin_pb_texts, audin_pb_values);
++
++extern unsigned int fifo_size;
++
++static const char * const audin_fs_texts[] = {
++	"8", "16", "32", "64", "128", "256", "384", "512", "768", "1024",
++};
++
++static const unsigned int audin_fs_values[] = {
++	8, 16, 32, 64, 128, 256, 384, 512, 768, 1024,
++};
++
++static int audin_fs_get_enum(struct snd_kcontrol *kcontrol,
++			         struct snd_ctl_elem_value *ucontrol)
++{
++//	struct snd_soc_component *component =
++//		snd_soc_kcontrol_component(kcontrol);
++	unsigned int val, mask;
++
++	mask = 0xffff;
++	val = fifo_size;
++	ucontrol->value.integer.value[0] = (val & mask) >> __ffs(mask);
++	return 0;
++}
++
++static int audin_fs_put_enum(struct snd_kcontrol *kcontrol,
++			          struct snd_ctl_elem_value *ucontrol)
++{
++//	struct snd_soc_component *component =
++//		snd_soc_kcontrol_component(kcontrol);
++//	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
++	unsigned int mux, val, mask, old, new;
++	int changed;
++
++	mux = ucontrol->value.integer.value[0];
++	val = mux;
++	mask = 0xffff;
++	old = fifo_size;
++	new = (old & ~mask) | val;
++	changed = old != new;
++
++	if (!changed)
++		return 0;
++	fifo_size = val & mask;
++	return 0;
++}
++
++static SOC_VALUE_ENUM_SINGLE_DECL(audin_fs_enum, NULL, 0, 0, audin_fs_texts, audin_fs_values);
++#endif
++
+ #ifdef DEBUG_AIU
+ static int aiu_msb_inv_get_enum(struct snd_kcontrol *kcontrol,
+ 			         struct snd_ctl_elem_value *ucontrol)
+@@ -941,6 +1084,14 @@ static const struct snd_kcontrol_new audio_codec_ctrl_controls[] = {
+ 	SOC_ENUM_EXT("ChEn", audin_chen_enum, 
+ 		     audin_chen_get_enum, audin_chen_put_enum),
+ #endif
++#ifdef DEBUG_FIFO2
++	SOC_VALUE_ENUM_EXT("FFISR", audin_ff_enum,
++		     audin_ff_get_enum, audin_ff_put_enum),
++	SOC_VALUE_ENUM_EXT("PeriodBytes", audin_pb_enum,
++		     audin_pb_get_enum, audin_pb_put_enum),
++	SOC_VALUE_ENUM_EXT("FifoSize", audin_fs_enum,
++		     audin_fs_get_enum, audin_fs_put_enum),
++#endif
+ #ifdef DEBUG_AIU
+ 	SOC_SINGLE_BOOL_EXT("MSB_Inv", 0, 
+ 			    aiu_msb_inv_get_enum, aiu_msb_inv_put_enum),
+diff --git a/sound/soc/meson/audio.c b/sound/soc/meson/audio.c
+index f433d54d658e..ff5ccc194785 100644
+--- a/sound/soc/meson/audio.c
++++ b/sound/soc/meson/audio.c
+@@ -21,9 +21,6 @@
+ #include "aiu-fifo.h"
+ #include "audin-fifo.h"
+ 
+-#define AIU_FIFO_I2S_BLOCK		256
+-#define AUDIN_FIFO_I2S_BLOCK		16384
+-
+ static struct snd_pcm_hardware aiu_fifo_i2s_pcm = {
+ 	.info = (SNDRV_PCM_INFO_INTERLEAVED |
+ 		 SNDRV_PCM_INFO_MMAP |
+@@ -32,13 +29,14 @@ static struct snd_pcm_hardware aiu_fifo_i2s_pcm = {
+ 	.formats = AUDIO_FORMATS,
+ 	.rate_min = 8000,
+ 	.rate_max = 192000,
+-	.channels_min = 2,
++	.channels_min = 1,
+ 	.channels_max = 8,
+ 	.period_bytes_min = AIU_FIFO_I2S_BLOCK,
+-	.period_bytes_max = AIU_FIFO_I2S_BLOCK * 256,
++	.period_bytes_max = 64*AIU_FIFO_I2S_BLOCK,
+ 	.periods_min = 2,
+-	.periods_max = 256,
++	.periods_max = 8,
+ 	.buffer_bytes_max = 1024 * 1024,
++	.fifo_size = 64,
+ };
+ 
+ static struct snd_pcm_hardware audin_fifo_i2s_pcm = {
+@@ -50,13 +48,13 @@ static struct snd_pcm_hardware audin_fifo_i2s_pcm = {
+ 	.formats = AUDIO_FORMATS,
+ 	.rate_min = 8000,
+ 	.rate_max = 48000,
+-	.channels_min = 2,
++	.channels_min = 1,
+ 	.channels_max = 8,
+ 	.period_bytes_min = AUDIN_FIFO_I2S_BLOCK,
+-	.period_bytes_max = AUDIN_FIFO_I2S_BLOCK * 256,
++	.period_bytes_max = 32*AUDIN_FIFO_I2S_BLOCK,
+ 	.periods_min = 2,
+-	.periods_max = 256,
+-	.buffer_bytes_max = 8192 * 8192,
++	.periods_max = 8,
++	.buffer_bytes_max = 1024 * 1024,
+ 	.fifo_size = 0,
+ };
+ 
+@@ -87,6 +85,7 @@ snd_pcm_uframes_t audio_fifo_pointer(struct snd_soc_component *component,
+ //		printk("audio_fifo_pointer: playback frames=%ld, addr=%x\n", frames, addr);
+ 		break;
+ 	case SNDRV_PCM_STREAM_CAPTURE:
++		spin_lock(&audio->irq_lock);
+ 		fifo = dai->capture_dma_data;
+ 		regmap_write(audio->audin_map, 
+ 			     fifo->mem_offset + AUDIN_FIFO_PTR_OFF,
+@@ -96,21 +95,25 @@ snd_pcm_uframes_t audio_fifo_pointer(struct snd_soc_component *component,
+ 		    	    &addr);
+ 		if (runtime->format == SNDRV_PCM_FORMAT_S16_LE) {
+ 			buffer_size = addr - (unsigned int)runtime->dma_addr;
+-			if (buffer_size == runtime->dma_bytes) 
+-				buffer_size = runtime->dma_bytes - 8;
++			if (buffer_size == (unsigned int)runtime->dma_bytes)
++				buffer_size -= 8;
+ 			frames = bytes_to_frames(runtime, buffer_size);
+-//			printk("16bits: frames=%ld, format=%d addr-runtime->dma_addr=%d\n",
+-//				frames, runtime->format, addr - (unsigned int)runtime->dma_addr);
++#ifdef DEBUG_FIFO
++			printk("16bits: frames=%ld, addr=0x%x, dma_addr=0x%x\n",
++				frames, addr, (unsigned int)runtime->dma_addr);
++#endif
+ 		}
+ 		else {
+ 			buffer_size = addr - (unsigned int)runtime->dma_addr;
+-			/* For a period size=48000, buffer_size can be 384 or 376 */
+-			if (buffer_size <= 384) 
+-				buffer_size = runtime->dma_bytes - buffer_size - 8;
++			if (buffer_size == (unsigned int)runtime->dma_bytes)
++				buffer_size -= 8;
+ 			frames = bytes_to_frames(runtime, buffer_size);
+-//			printk("32bits: frames=%ld, format=%d addr-runtime->dma_addr=%d\n",
+-//				frames, runtime->format, addr - (unsigned int)runtime->dma_addr);
++#ifdef DEBUG_FIFO
++			printk("32bits: frames=%ld, addr=0x%x, dma_addr=0x%x\n",
++				frames, addr, (unsigned int)runtime->dma_addr);
++#endif
+ 		}
++		spin_unlock(&audio->irq_lock);
+ 		break;
+ 	}
+ 	return frames;
+@@ -326,10 +329,10 @@ static struct snd_soc_dai_driver audio_cpu_dai_drv[] = {
+ 		.name = "I2S FIFO ENCODE",
+ 		.playback = {
+ 			.stream_name	= "I2S FIFO Playback",
+-			.channels_min	= 2,
++			.channels_min	= 1,
+ 			.channels_max	= 8,
+ 			.rates		= SNDRV_PCM_RATE_CONTINUOUS,
+-			.rate_min	= 5512,
++			.rate_min	= 8000,
+ 			.rate_max	= 192000,
+ 			.formats	= AUDIO_FORMATS,
+ 		},
+@@ -360,7 +363,7 @@ static struct snd_soc_dai_driver audio_cpu_dai_drv[] = {
+ 		.name = "I2S Encoder",
+ 		.playback = {
+ 			.stream_name = "I2S Encoder Playback",
+-			.channels_min = 2,
++			.channels_min = 1,
+ 			.channels_max = 8,
+ 			.rates = SNDRV_PCM_RATE_8000_192000,
+ 			.formats = AUDIO_FORMATS,
+@@ -390,10 +393,10 @@ static struct snd_soc_dai_driver audio_cpu_dai_drv[] = {
+ 		.name = "I2S FIFO DECODE",
+ 		.capture = {
+ 			.stream_name	= "I2S FIFO Capture",
+-			.channels_min	= 2,
++			.channels_min	= 1,
+ 			.channels_max	= 8,
+ 			.rates		= SNDRV_PCM_RATE_CONTINUOUS,
+-			.rate_min	= 5512,
++			.rate_min	= 8000,
+ 			.rate_max	= 192000,
+ 			.formats	= AUDIO_FORMATS,
+ 		},
+@@ -424,7 +427,7 @@ static struct snd_soc_dai_driver audio_cpu_dai_drv[] = {
+ 		.name = "I2S Decoder",
+ 		.capture = {
+ 			.stream_name = "I2S Decoder Capture",
+-			.channels_min = 2,
++			.channels_min = 1,
+ 			.channels_max = 8,
+ 			.rates = SNDRV_PCM_RATE_8000_192000,
+ 			.formats = AUDIO_FORMATS,
+diff --git a/sound/soc/meson/audio.h b/sound/soc/meson/audio.h
+index 44bff02a88e7..0564509a50ea 100644
+--- a/sound/soc/meson/audio.h
++++ b/sound/soc/meson/audio.h
+@@ -11,6 +11,11 @@
+ 
+ //#define DEBUG_AUDIN
+ //#define DEBUG_AIU
++//#define DEBUG_FIFO
++//#define DEBUG_FIFO2
++
++#define AIU_FIFO_I2S_BLOCK		256
++#define AUDIN_FIFO_I2S_BLOCK		512
+ 
+ struct clk;
+ struct clk_bulk_data;
+@@ -53,6 +58,7 @@ struct audio {
+ 	void __iomem *audin_regs;
+ 	struct regmap *aiu_map;
+ 	struct regmap *audin_map;
++	spinlock_t irq_lock;
+ };
+ 
+ struct audio_fifo {

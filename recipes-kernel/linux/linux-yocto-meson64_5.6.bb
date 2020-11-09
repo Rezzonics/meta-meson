@@ -12,6 +12,7 @@ LINUX_VERSION = "5.6.0"
 # Linux stable tree
 SRC_URI = "git://github.com/Rezzonics/linux.git;protocol=https;branch=devrezz2;name=meson \
            file://defconfig \
+           file://0001-AUDIN-capture-FIFO-corrected-with-2-periods-and-redu.patch \
            "
 
 KERNEL_VERSION_SANITY_SKIP="1"
