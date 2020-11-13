@@ -6,7 +6,7 @@ FILESEXTRAPATHS_prepend := "${THISDIR}/${PN}-${PV}:"
 
 DEPENDS += "rsync-native"
 
-SRCREV_meson = "e806fe9a499c969ee44ca7c5b9f57ff3126039e5"
+SRCREV_meson = "8e5d9c4b6b49c6ebb68a3ff734525982af6d92fe"
 LINUX_VERSION = "5.6.0"
 	
 # Linux stable tree
