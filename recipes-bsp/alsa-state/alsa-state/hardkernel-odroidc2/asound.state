@@ -1,0 +1,257 @@
+state.S905 {
+        control.1 {
+                iface MIXER
+                name 'AUDIO_CPU Swap'
+                value false
+                comment {
+                        access 'read write'
+                        type BOOLEAN
+                        count 1
+                }
+        }
+        control.2 {
+                iface MIXER
+                name 'DAC Playback Volume'
+                value.0 246
+                value.1 246
+                comment {
+                        access 'read write'
+                        type INTEGER
+                        count 2
+                        range '0 - 255'
+                        dbmin -12750
+                        dbmax 0
+                        dbvalue.0 -450
+                        dbvalue.1 -450
+                }
+        }
+        control.3 {
+                iface MIXER
+                name 'HP Playback Enable'
+                value true
+                comment {
+                        access 'read write'
+                        type BOOLEAN
+                        count 1
+                }
+        }
+        control.4 {
+                iface MIXER
+                name 'HP Playback Volume'
+                value 12
+                comment {
+                        access 'read write'
+                        type INTEGER
+                        count 1
+                        range '0 - 15'
+                }
+        }
+        control.5 {
+                iface MIXER
+                name 'PGA Capture Volume'
+                value.0 39
+                value.1 39
+                comment {
+                        access 'read write'
+                        type INTEGER
+                        count 2
+                        range '0 - 48'
+                        dbmin -1200
+                        dbmax 1200
+                        dbvalue.0 750
+                        dbvalue.1 750
+                }
+        }
+        control.6 {
+                iface MIXER
+                name 'LineL Gain'
+                value '11dB'
+                comment {
+                        access 'read write'
+                        type ENUMERATED
+                        count 1
+                        item.0 '-1dB'
+                        item.1 '20dB'
+                        item.2 '11dB'
+                        item.3 '21dB'
+                }
+        }
+        control.7 {
+                iface MIXER
+                name 'LineR Gain'
+                value '11dB'
+                comment {
+                        access 'read write'
+                        type ENUMERATED
+                        count 1
+                        item.0 '-1dB'
+                        item.1 '20dB'
+                        item.2 '11dB'
+                        item.3 '21dB'
+                }
+        }
+        control.8 {
+                iface MIXER
+                name 'LineL Impedance'
+                value 'LINE 1M'
+                comment {
+                        access 'read write'
+                        type ENUMERATED
+                        count 1
+                        item.0 'LINE 1M'
+                        item.1 'INST 75K'
+                        item.2 'MIC 3K'
+                        item.3 'RSVD <3K'
+                }
+        }
+        control.9 {
+                iface MIXER
+                name 'LineR Impedance'
+                value 'LINE 1M'
+                comment {
+                        access 'read write'
+                        type ENUMERATED
+                        count 1
+                        item.0 'LINE 1M'
+                        item.1 'INST 75K'
+                        item.2 'MIC 3K'
+                        item.3 'RSVD <3K'
+                }
+        }
+        control.10 {
+                iface MIXER
+                name 'DAC DeEmp DAC Switch DE'
+                value true
+                comment {
+                        access 'read write'
+                        type BOOLEAN
+                        count 1
+                }
+        }
+        control.11 {
+                iface MIXER
+                name 'DAC Invert DAC Switch INV'
+                value false
+                comment {
+                        access 'read write'
+                        type BOOLEAN
+                        count 1
+                }
+        }
+        control.12 {
+                iface MIXER
+                name 'DAC ZeroCross DAC Switch ZC'
+                value true
+                comment {
+                        access 'read write'
+                        type BOOLEAN
+                        count 1
+                }
+        }
+        control.13 {
+                iface MIXER
+                name 'DAC SoftRamp DAC Switch SR'
+                value true
+                comment {
+                        access 'read write'
+                        type BOOLEAN
+                        count 1
+                }
+        }
+        control.14 {
+                iface MIXER
+                name 'AUXOUT Mux'
+                value DAC
+                comment {
+                        access 'read write'
+                        type ENUMERATED
+                        count 1
+                        item.0 Hi_Imp
+                        item.1 DAC
+                        item.2 PGA
+                        item.3 RSV
+                }
+        }
+        control.15 {
+                iface MIXER
+                name 'ADC Mux'
+                value LINEIN4
+                comment {
+                        access 'read write'
+                        type ENUMERATED
+                        count 1
+                        item.0 MIC
+                        item.1 LINEIN1
+                        item.2 LINEIN2
+                        item.3 LINEIN3
+                        item.4 LINEIN4
+                        item.5 LINEIN5
+                        item.6 LINEIN6
+                        item.7 RSV
+                }
+        }
+        control.16 {
+                iface MIXER
+                name 'ADC HPF ADC Switch HPF'
+                value true
+                comment {
+                        access 'read write'
+                        type BOOLEAN
+                        count 1
+                }
+        }
+        control.17 {
+                iface MIXER
+                name 'ADC ZeroCross ADC Switch ZC'
+                value true
+                comment {
+                        access 'read write'
+                        type BOOLEAN
+                        count 1
+                }
+        }
+        control.18 {
+                iface MIXER
+                name 'ADC SoftRamp ADC Switch SR'
+                value true
+                comment {
+                        access 'read write'
+                        type BOOLEAN
+                        count 1
+                }
+        }
+        control.19 {
+                iface MIXER
+                name 'True-Bypass L Switch TBPL'
+                value Off
+                comment {
+                        access 'read write'
+                        type ENUMERATED
+                        count 1
+                        item.0 Off
+                        item.1 On
+                }
+        }
+        control.20 {
+                iface MIXER
+                name 'True-Bypass R Switch TBPR'
+                value Off
+                comment {
+                        access 'read write'
+                        type ENUMERATED
+                        count 1
+                        item.0 Off
+                        item.1 On
+                }
+        }
+        control.21 {
+                iface MIXER
+                name 'Loopback Switch LB'
+                value false
+                comment {
+                        access 'read write'
+                        type BOOLEAN
+                        count 1
+                }
+        }
+}
